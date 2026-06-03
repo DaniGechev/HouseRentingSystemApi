@@ -13,5 +13,9 @@ namespace HouseRentingSystemApi.Models.Auth
 		[Required]
 		[EmailAddress]
 		public string  Email { get; set; }
+
+		// Optional at registration. Allowed values: "Client" or "Agent".
+		// Defaults to "Client" when not provided.
+		public string? Role { get; set; }
 	}
 }

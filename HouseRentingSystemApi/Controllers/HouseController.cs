@@ -1,9 +1,8 @@
-﻿using HouseRentingSystemApi.Data;
-using HouseRentingSystemApi.Data.Entities;
+using HouseRentingSystemApi.Constants;
 using HouseRentingSystemApi.Models;
+using HouseRentingSystemApi.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
 
 namespace HouseRentingSystemApi.Controllers
@@ -12,27 +11,18 @@ namespace HouseRentingSystemApi.Controllers
     [Route("api/[controller]")]
     public class HouseController : ControllerBase
     {
-        private AppDbContext context;
+        private readonly IHouseService houseService;
 
-        public HouseController(AppDbContext context)
+        public HouseController(IHouseService houseService)
         {
-            this.context = context;
+            this.houseService = houseService;
         }
 
         [HttpGet("All")]
         [Produces(typeof(IEnumerable<HouseDetailModel>))]
         public async Task<IActionResult> GetAll()
         {
-            var model = await context.Houses
-                .AsNoTracking()
-                .Select(h => new HouseDetailModel()
-                {
-                    Title = h.Title,
-                    Address = h.Address,
-                    ImageUrl = h.ImageUrl
-                })
-                .ToListAsync();
-
+            var model = await houseService.GetAllAsync();
             return Ok(model);
         }
 
@@ -48,21 +38,17 @@ namespace HouseRentingSystemApi.Controllers
         [Produces(typeof(HouseDetailModel))]
         public async Task<IActionResult> GetById(int id)
         {
-            var house = await context.Houses.FirstOrDefaultAsync(h => h.Id == id);
+            var house = await houseService.GetByIdAsync(id);
+
             if (house == null)
             {
                 return NotFound();
             }
 
-            return Ok(new HouseDetailModel()
-            {
-                Title = house.Title,
-                Address = house.Address,
-                ImageUrl = house.ImageUrl
-            });
+            return Ok(house);
         }
 
-        [Authorize]
+        [Authorize(Roles = RoleConstants.Agent)]
         [HttpPost("All")]
         [Produces(typeof(HouseDetailModel))]
         public async Task<IActionResult> Create([FromBody] HouseDetailModel model)
@@ -74,103 +60,46 @@ namespace HouseRentingSystemApi.Controllers
 
             var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
 
-            var newHouse = new House()
-            {
-                Description = model.Description,
-                PricePerMonth = model.PricePerMonth,
-                Address = model.Address,
-                Title = model.Title,
-                ImageUrl = model.ImageUrl
-            };
+            var created = await houseService.CreateAsync(model, userId!);
 
-            var category = await context.Categories
-                .FirstOrDefaultAsync(c => c.Name == model.Category.ToString());
-
-            if (category == null)
-            {
-                var newCategory = new Category()
-                {
-                    Name = model.Category.ToString(),
-                };
-                context.Categories.Add(newCategory);
-                await context.SaveChangesAsync();
-                newHouse.CategoryId = newCategory.Id;
-            }
-            else
-            {
-                newHouse.CategoryId = category.Id;
-            }
-
-            newHouse.UserId = userId;
-            context.Houses.Add(newHouse);
-            await context.SaveChangesAsync();
-
-            return Created($"api/house/{newHouse.Id}", new HouseDetailModel()
-            {
-                Address = newHouse.Address,
-                ImageUrl = newHouse.ImageUrl,
-                Title = newHouse.Title,
-                Description = newHouse.Description,
-                PricePerMonth = newHouse.PricePerMonth,
-                Category = model.Category
-            });
+            return Created("api/House/All", created);
         }
 
-        [Authorize]
+        [Authorize(Roles = RoleConstants.Agent)]
         [HttpPut("{id}")]
         public async Task<IActionResult> Edit(int id, [FromBody] HouseEditModel model)
         {
             if (ModelState.IsValid == false)
+            {
                 return BadRequest();
-
-            var house = await context.Houses.FirstOrDefaultAsync(h => h.Id == id);
-
-            if (house == null)
-                return NotFound();
+            }
 
             var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
 
-            if (house.UserId != userId)
-                return Forbid();
+            var status = await houseService.EditAsync(id, model, userId!);
 
-            house.Title = model.Title;
-            house.Address = model.Address;
-            house.Description = model.Description;
-            house.ImageUrl = model.ImageUrl;
-            house.PricePerMonth = model.PricePerMonth;
-
-            var category = await context.Categories
-                .FirstOrDefaultAsync(c => c.Name == model.Category.ToString());
-
-            if (category == null)
+            return status switch
             {
-                var newCategory = new Category { Name = model.Category.ToString() };
-                context.Categories.Add(newCategory);
-                await context.SaveChangesAsync();
-                house.CategoryId = newCategory.Id;
-            }
-            else
-            {
-                house.CategoryId = category.Id;
-            }
-
-            await context.SaveChangesAsync();
-            return NoContent();
+                OperationStatus.NotFound => NotFound(),
+                OperationStatus.Forbidden => Forbid(),
+                _ => NoContent()
+            };
         }
 
-        [Authorize]
+        [Authorize(Roles = RoleConstants.Agent)]
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(int id)
         {
-            var house = await context.Houses.FirstOrDefaultAsync(h => h.Id == id);
+            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
 
-            if (house == null)
-                return NotFound();
+            var status = await houseService.DeleteAsync(id, userId!);
 
-            context.Houses.Remove(house);
-            await context.SaveChangesAsync();
-
-            return NoContent();
+            return status switch
+            {
+                OperationStatus.NotFound => NotFound(),
+                OperationStatus.Forbidden => Forbid(),
+                _ => NoContent()
+            };
         }
     }
 }

@@ -1,6 +1,8 @@
+using HouseRentingSystemApi.Constants;
 using HouseRentingSystemApi.Data;
 using HouseRentingSystemApi.Data.Entities;
 using HouseRentingSystemApi.Middlewares;
+using HouseRentingSystemApi.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -11,7 +13,7 @@ namespace HouseRentingSystemApi
 {
     public class Program
     {
-        public static void Main(string[] args)
+        public static async Task Main(string[] args)
         {
             var builder = WebApplication.CreateBuilder(args);
 
@@ -69,7 +71,24 @@ namespace HouseRentingSystemApi
 
             builder.Services.AddAuthorization();
 
+            builder.Services.AddScoped<IHouseService, HouseService>();
+            builder.Services.AddScoped<IAuthService, AuthService>();
+
             var app = builder.Build();
+
+            using (var scope = app.Services.CreateScope())
+            {
+                var roleManager = scope.ServiceProvider
+                    .GetRequiredService<RoleManager<IdentityRole>>();
+
+                foreach (var role in RoleConstants.All)
+                {
+                    if (await roleManager.RoleExistsAsync(role) == false)
+                    {
+                        await roleManager.CreateAsync(new IdentityRole(role));
+                    }
+                }
+            }
 
             if (app.Environment.IsDevelopment())
             {
@@ -80,6 +99,7 @@ namespace HouseRentingSystemApi
             app.UseCors("FrontendPolicy");
             app.UseHttpsRedirection();
             app.UseStopwatch();
+            app.UseAuthentication();
             app.UseAuthorization();
             app.MapControllers();
             app.Run();
